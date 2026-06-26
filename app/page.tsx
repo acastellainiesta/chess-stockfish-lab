@@ -195,11 +195,17 @@ export default function Home() {
     [syncFromGame]
   );
 
-  // Force whose turn it is (white or black) without making a move.
+  // Force whose turn it is (white or black) without making a move. We edit the
+  // FEN directly (and clear the en-passant target) instead of using setTurn,
+  // which refuses to flip the side to move while the current side is in check.
   const setTurnTo = useCallback(
     (color: EngineColor) => {
-      gameRef.current.setTurn(color === "white" ? "w" : "b");
+      const parts = gameRef.current.fen().split(" ");
+      parts[1] = color === "white" ? "w" : "b";
+      parts[3] = "-";
+      gameRef.current.load(parts.join(" "), { skipValidation: true });
       syncFromGame();
+      setRedoStack([]);
     },
     [syncFromGame]
   );
