@@ -5,7 +5,7 @@ A web-based chess analysis board that lets you play both sides of a position and
 > [!CAUTION]
 > This is a **learning and analysis tool**, not a cheating tool. Using engine help during rated games on chess com, Lichess, or in tournaments violates their rules and will very likely get you banned. Struggling at chess doesn't make you any less smart. Please use this fairly and be kind to other players.
 
-![Demo](demo.gif)
+![Demo](demo.mp4)
 
 ## What is Stockfish?
 
@@ -55,6 +55,11 @@ A useful side effect of this design: the tool is a **self-contained website**. I
 
 > [!WARNING]
 > That isolation is **not** an invitation to use this for advantage play. Anti-cheat systems also rely on move-quality statistics and behaviour, not just network traffic, and you will most likely be caught and banned. Keep it to analysis, study, and post-game review.
+
+## Staying up to date
+
+> [!NOTE]
+> Stockfish and the StockfishOnline API keep evolving — endpoints, accepted depth ranges, and response fields can change over time (the minimum depth, for example, has already shifted in the past). If something breaks because of an upstream change, it's not necessarily a bug on your end. This repo is maintained and will be updated to keep up with those changes.
 
 ## Running it locally
 
