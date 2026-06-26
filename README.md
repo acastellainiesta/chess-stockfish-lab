@@ -1,1 +1,3 @@
-# chess-stockfish-lab
+# Chess Stockfish Lab
+
+![Demo](demo.gif)
