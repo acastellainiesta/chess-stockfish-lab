@@ -28,6 +28,58 @@ function linesExtendingHistory(
   });
 }
 
+function linesMatchingHistory(
+  lines: OpeningLine[],
+  history: string[]
+): OpeningLine[] {
+  const norm = history.map(normalizeSan);
+  if (norm.length === 0) return [];
+  return lines.filter((line) => {
+    if (line.moves.length < norm.length) return false;
+    return norm.every((m, i) => normalizeSan(line.moves[i]!) === m);
+  });
+}
+
+/** At least one book line still has moves after the current position. */
+export function hasBookContinuations(
+  opening: OpeningDefinition,
+  history: string[]
+): boolean {
+  if (history.length === 0) return true;
+  return linesExtendingHistory(opening.lines, history).length > 0;
+}
+
+/** History matches the opening but every matching line is fully played. */
+export function isOpeningLineExhausted(
+  opening: OpeningDefinition,
+  history: string[]
+): boolean {
+  if (history.length === 0) return false;
+  const matching = linesMatchingHistory(opening.lines, history);
+  if (matching.length === 0) return false;
+  return linesExtendingHistory(opening.lines, history).length === 0;
+}
+
+/** Latest move left every line in this opening. */
+export function hasDeviatedFromOpening(
+  opening: OpeningDefinition,
+  history: string[]
+): boolean {
+  if (history.length === 0) return false;
+  return linesMatchingHistory(opening.lines, history).length === 0;
+}
+
+export function findOpeningsWithActiveBook(
+  openings: OpeningDefinition[],
+  history: string[],
+  excludeOpeningId?: string
+): OpeningDefinition[] {
+  return openings.filter((o) => {
+    if (excludeOpeningId && o.id === excludeOpeningId) return false;
+    return hasBookContinuations(o, history);
+  });
+}
+
 /** Longest line whose move list still matches the game so far. */
 export function getCurrentVariation(
   opening: OpeningDefinition,
@@ -140,6 +192,5 @@ export function isStillInOpeningBook(
   opening: OpeningDefinition,
   history: string[]
 ): boolean {
-  if (history.length === 0) return true;
-  return linesExtendingHistory(opening.lines, history).length > 0;
+  return hasBookContinuations(opening, history);
 }

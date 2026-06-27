@@ -11,9 +11,12 @@ import { useToasts } from "../../hooks/useToasts";
 import { buildBoardSquareStyles } from "../../lib/boardSquareStyles";
 import { playMoveSound, warmUpMoveSounds } from "../../lib/chessSounds";
 import {
+  findSwitchableOpenings,
   getCurrentVariation,
   getOpening,
-  isStillInOpeningBook,
+  hasBookContinuations,
+  hasDeviatedFromOpening,
+  isOpeningLineExhausted,
   lookupBookSuggestion,
   OPENING_LIST,
   repertoireSideLabel,
@@ -49,9 +52,9 @@ const PHASE_LABELS: Record<GamePhase, string> = {
 };
 
 const PHASE_DEPTHS: Record<GamePhase, number[]> = {
-  opening: [5, 6, 7],
-  midgame: [8, 9, 10],
-  endgame: [11, 12, 13, 14, 15],
+  opening: [8, 9, 10],
+  midgame: [11, 12, 13],
+  endgame: [14, 15],
 };
 
 function pickDepth(phase: GamePhase): number {
@@ -86,7 +89,11 @@ export default function PlayPage() {
   const pointerRef = useRef({ x: 0, y: 0 });
   const lastAutoAppliedRef = useRef<{ fen: string; bestMove: string } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const openingTrackRef = useRef({ inBook: false, variationId: "" });
+  const openingTrackRef = useRef({
+    inBook: false,
+    variationId: "",
+    exhausted: false,
+  });
   const { toasts, pushToast, dismissToast } = useToasts();
 
   const turn: EngineColor = gameRef.current.turn() === "w" ? "white" : "black";
@@ -137,42 +144,85 @@ export default function PlayPage() {
     [pushToast]
   );
 
+  const prevOpeningIdRef = useRef<OpeningId | null>(null);
+
+  const notifyDeviated = useCallback(
+    (openingName: string, historyForSwitch: string[], openingId: OpeningId) => {
+      const others = findSwitchableOpenings(historyForSwitch, openingId);
+      let msg = `This move is not in ${openingName}. No eligible variations remain in this opening. Switching to Stockfish.`;
+      if (others.length > 0) {
+        msg += ` Consider switching to: ${others.map((o) => o.name).join(", ")}.`;
+      }
+      pushToast(msg, "warn");
+    },
+    [pushToast]
+  );
+
   useEffect(() => {
     if (!selectedOpening) {
-      openingTrackRef.current = { inBook: false, variationId: "" };
+      openingTrackRef.current = { inBook: false, variationId: "", exhausted: false };
+      prevOpeningIdRef.current = null;
       return;
     }
     const opening = getOpening(selectedOpening);
     if (!opening) return;
 
-    const inBook = isStillInOpeningBook(opening, history);
+    const inBook = hasBookContinuations(opening, history);
+    const exhausted = isOpeningLineExhausted(opening, history);
+    const deviated = hasDeviatedFromOpening(opening, history);
     const variation = getCurrentVariation(opening, history);
     const varId = variation?.id ?? "";
     const prev = openingTrackRef.current;
-    const minPly = 2;
+    const openingJustChanged = prevOpeningIdRef.current !== selectedOpening;
+    prevOpeningIdRef.current = selectedOpening;
 
-    if (history.length >= minPly) {
-      if (prev.inBook && !inBook) {
-        pushToast("Left opening book — Stockfish suggestions resume", "warn");
+    if (openingJustChanged && history.length > 0) {
+      if (deviated) {
+        notifyDeviated(opening.name, history, selectedOpening);
+      } else if (exhausted) {
+        const label = variation
+          ? `${variation.name} (${variation.eco})`
+          : opening.name;
+        pushToast(
+          `Opening line already complete here — ${label}. Switching to Stockfish suggestions.`,
+          "success"
+        );
+      } else if (inBook && variation) {
+        variationToast(variation.name);
+      }
+      openingTrackRef.current = { inBook, variationId: varId, exhausted };
+      return;
+    }
+
+    if (history.length >= 1) {
+      if (inBook && variation && varId && varId !== prev.variationId) {
+        variationToast(variation.name);
       } else if (!prev.inBook && inBook && variation) {
         variationToast(variation.name);
-      } else if (inBook && variation && varId && varId !== prev.variationId) {
-        variationToast(variation.name);
+      }
+
+      if (prev.inBook && !inBook) {
+        if (exhausted) {
+          const label = variation
+            ? `${variation.name} (${variation.eco})`
+            : opening.name;
+          pushToast(
+            `Opening line complete — ${label}. Switching to Stockfish suggestions.`,
+            "success"
+          );
+        } else if (deviated) {
+          notifyDeviated(opening.name, history, selectedOpening);
+        } else {
+          pushToast("Left opening book — switching to Stockfish suggestions.", "warn");
+        }
       }
     }
 
-    openingTrackRef.current = { inBook, variationId: varId };
-  }, [history, selectedOpening, pushToast, variationToast]);
+    openingTrackRef.current = { inBook, variationId: varId, exhausted };
+  }, [history, selectedOpening, pushToast, variationToast, notifyDeviated]);
 
   useEffect(() => {
-    openingTrackRef.current = { inBook: false, variationId: "" };
-  }, [selectedOpening]);
-
-  useEffect(() => {
-    const sideToMove = gameRef.current.turn() === "w" ? "white" : "black";
-    const wanted = suggestFor === "both" || suggestFor === sideToMove;
-
-    if (!suggestionsEnabled || !wanted) {
+    if (!suggestionsEnabled) {
       abortRef.current?.abort();
       setEngine(null);
       setLoading(false);
@@ -185,7 +235,11 @@ export default function PlayPage() {
       return;
     }
 
-    const book = lookupBookSuggestion(selectedOpening, history, fen);
+    const sideToMove = gameRef.current.turn() === "w" ? "white" : "black";
+    const stockfishWanted = suggestFor === "both" || suggestFor === sideToMove;
+
+    // Book always applies to both sides while an opening is selected and still in book.
+    const book = selectedOpening ? lookupBookSuggestion(selectedOpening, history, fen) : null;
     if (book) {
       abortRef.current?.abort();
       setEngine({
@@ -202,6 +256,13 @@ export default function PlayPage() {
         bookSan: book.san,
         bookAlternativeLines: book.alternativeLines,
       });
+      setLoading(false);
+      return;
+    }
+
+    if (!stockfishWanted) {
+      abortRef.current?.abort();
+      setEngine(null);
       setLoading(false);
       return;
     }
@@ -357,10 +418,22 @@ export default function PlayPage() {
     [attemptMove, engine]
   );
 
+  const canConfirmEngine =
+    Boolean(engine?.bestMove) &&
+    (engine?.fromBook ||
+      suggestFor === "both" ||
+      suggestFor === turn);
+
   useEffect(() => {
     if (!autoMove || !suggestionsEnabled || loading || isGameOver || forceMoveFrom) return;
     const sideToMove = gameRef.current.turn() === "w" ? "white" : "black";
-    if (suggestFor !== "both" && suggestFor !== sideToMove) return;
+    if (
+      suggestFor !== "both" &&
+      suggestFor !== sideToMove &&
+      !engine?.fromBook
+    ) {
+      return;
+    }
     const best = engine?.bestMove;
     if (!best || best.length < 4 || engine.error) return;
     const applied = { fen, bestMove: best };
@@ -435,6 +508,9 @@ export default function PlayPage() {
   });
 
   const suggestionWanted = suggestFor === "both" || suggestFor === turn;
+  const showingBook = Boolean(engine?.fromBook);
+  const outOfBookWithOpening =
+    Boolean(selectedOpening) && !showingBook && history.length > 0;
   let statusText = `${PHASE_LABELS[phase]} · ${turn === "white" ? "White" : "Black"} to move`;
   if (gameRef.current.isCheckmate()) {
     statusText = `Checkmate — ${turn === "white" ? "Black" : "White"} wins`;
@@ -516,7 +592,7 @@ export default function PlayPage() {
               type="button"
               className={`${styles.btn} ${styles.confirmWhite}`}
               onClick={() => confirmEngineMove("white")}
-              disabled={isGameOver || loading || turn !== "white" || !engine?.bestMove}
+              disabled={isGameOver || loading || turn !== "white" || !canConfirmEngine}
             >
               White confirm
             </button>
@@ -524,7 +600,7 @@ export default function PlayPage() {
               type="button"
               className={`${styles.btn} ${styles.confirmBlack}`}
               onClick={() => confirmEngineMove("black")}
-              disabled={isGameOver || loading || turn !== "black" || !engine?.bestMove}
+              disabled={isGameOver || loading || turn !== "black" || !canConfirmEngine}
             >
               Black confirm
             </button>
@@ -535,8 +611,8 @@ export default function PlayPage() {
           <div className={styles.card}>
             <h2 className={styles.cardTitle}>Opening</h2>
             <p className={styles.hint}>
-              In book, suggestions come from mapped lines instead of Stockfish. Leave the
-              line and Stockfish takes over.
+              In book, both sides get book moves (not Stockfish). Leave the line and
+              Stockfish takes over — you will be notified.
             </p>
             <div className={styles.openingDropdown} ref={openingDropdownRef}>
               <button
@@ -654,10 +730,6 @@ export default function PlayPage() {
               <p className={styles.muted}>Suggestions are off.</p>
             ) : isGameOver ? (
               <p className={styles.muted}>Game over.</p>
-            ) : !suggestionWanted ? (
-              <p className={styles.muted}>
-                Suggestions set to {suggestFor === "white" ? "White" : "Black"} only.
-              </p>
             ) : engine?.error ? (
               <p className={styles.error}>{engine.error}</p>
             ) : engine ? (
@@ -731,6 +803,18 @@ export default function PlayPage() {
                     </div>
                   ))}
               </div>
+            ) : outOfBookWithOpening && !suggestionWanted ? (
+              <p className={styles.muted}>
+                Out of opening book — Stockfish is limited to{" "}
+                {suggestFor === "white" ? "White" : "Black"}&apos;s turn.
+              </p>
+            ) : outOfBookWithOpening ? (
+              <p className={styles.muted}>Out of opening book — waiting for Stockfish…</p>
+            ) : !suggestionWanted ? (
+              <p className={styles.muted}>
+                Stockfish limited to {suggestFor === "white" ? "White" : "Black"} — book
+                still shows when in repertoire.
+              </p>
             ) : (
               <p className={styles.muted}>Waiting for analysis…</p>
             )}
@@ -738,7 +822,10 @@ export default function PlayPage() {
 
           <div className={styles.card}>
             <h2 className={styles.cardTitle}>Suggestions for</h2>
-            <p className={styles.hint}>Limit engine calls to one colour to reduce rate limits.</p>
+            <p className={styles.hint}>
+              Book moves ignore this filter. Stockfish only runs for the selected side(s)
+              when out of book.
+            </p>
             <div className={styles.segmented}>
               {(["white", "black", "both"] as SuggestColor[]).map((c) => (
                 <button

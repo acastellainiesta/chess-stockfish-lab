@@ -2,6 +2,7 @@ import { CARO_KANN } from "./caroKann";
 import { RUY_LOPEZ } from "./ruyLopez";
 import { SICILIAN } from "./sicilian";
 import {
+  findOpeningsWithActiveBook,
   getOpeningBookSuggestion,
   getCurrentVariation,
   isStillInOpeningBook,
@@ -9,7 +10,17 @@ import {
 import type { BookSuggestion, OpeningDefinition, OpeningId } from "./types";
 
 export type { BookSuggestion, OpeningDefinition, OpeningId, OpeningLine, OpeningSide } from "./types";
-export { getOpeningBookSuggestion, getCurrentVariation, isStillInOpeningBook, normalizeSan, sanToUci } from "./matcher";
+export {
+  getOpeningBookSuggestion,
+  getCurrentVariation,
+  isStillInOpeningBook,
+  hasBookContinuations,
+  isOpeningLineExhausted,
+  hasDeviatedFromOpening,
+  findOpeningsWithActiveBook,
+  normalizeSan,
+  sanToUci,
+} from "./matcher";
 export {
   getLineById,
   validateStudyMove,
@@ -45,6 +56,13 @@ export function lookupBookSuggestion(
   const opening = getOpening(openingId);
   if (!opening) return null;
   return getOpeningBookSuggestion(opening, history, fen);
+}
+
+export function findSwitchableOpenings(
+  history: string[],
+  excludeOpeningId?: OpeningId
+): OpeningDefinition[] {
+  return findOpeningsWithActiveBook(OPENING_LIST, history, excludeOpeningId);
 }
 
 export function repertoireSideLabel(opening: OpeningDefinition): string {
