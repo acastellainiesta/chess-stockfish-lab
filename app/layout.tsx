@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Stockfish Chess Lab",
-  description: "Play both sides and get Stockfish best-move analysis per phase.",
+  title: "Chess Study Lab",
+  description: "Study openings, play vs Stockfish, or explore positions in the sandbox.",
 };
 
 export default function RootLayout({

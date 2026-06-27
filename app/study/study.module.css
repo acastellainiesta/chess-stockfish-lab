@@ -1,0 +1,133 @@
+.wizard {
+  max-width: 720px;
+}
+
+.steps {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.step {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 2px solid var(--border-soft);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.step[data-active="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.step[data-done="true"] {
+  border-color: #16a34a;
+  color: #166534;
+  background: #f0fdf4;
+}
+
+.openingGrid {
+  display: grid;
+  gap: 10px;
+}
+
+.openingBtn {
+  text-align: left;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 2px solid var(--border);
+  background: var(--card);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.openingBtn:hover,
+.openingBtn[data-selected="true"] {
+  border-color: var(--accent);
+  background: var(--card-hover);
+}
+
+.openingBtnTitle {
+  display: block;
+  font-size: 15px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+.openingBtnMeta {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.search {
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  border: 2px solid var(--border);
+  font-size: 14px;
+}
+
+.variationList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.variationBtn {
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 2px solid var(--border-soft);
+  background: var(--card);
+  cursor: pointer;
+}
+
+.variationBtn:hover,
+.variationBtn[data-selected="true"] {
+  border-color: var(--accent);
+  background: #fff7ed;
+}
+
+.variationName {
+  display: block;
+  font-size: 14px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+.variationPreview {
+  display: block;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.fullLine {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-warm);
+  border: 1px solid var(--border-soft);
+  word-break: break-word;
+}
