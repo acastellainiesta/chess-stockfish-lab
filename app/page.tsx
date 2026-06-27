@@ -11,6 +11,7 @@ type ContextMenuState = { x: number; y: number; square: string };
 
 type GamePhase = "opening" | "midgame" | "endgame";
 type EngineColor = "white" | "black";
+type SuggestColor = "white" | "black" | "both";
 
 type EngineResult = {
   success: boolean;
@@ -55,7 +56,10 @@ export default function Home() {
   const [history, setHistory] = useState<string[]>([]);
 
   const [phase, setPhase] = useState<GamePhase>("opening");
-  const [engineColor, setEngineColor] = useState<EngineColor>("white");
+  // Which colour(s) we actually request suggestions for. Limiting this to a
+  // single colour roughly halves the number of API calls, which avoids the
+  // StockfishOnline rate limit (HTTP 429) during quick back-and-forth play.
+  const [suggestFor, setSuggestFor] = useState<SuggestColor>("both");
   const [orientation, setOrientation] = useState<EngineColor>("white");
 
   const [engine, setEngine] = useState<EngineResult | null>(null);
@@ -86,7 +90,12 @@ export default function Home() {
 
   // Ask Stockfish for the best move whenever the position or phase changes.
   useEffect(() => {
-    if (!suggestionsEnabled) {
+    const sideToMove = gameRef.current.turn() === "w" ? "white" : "black";
+    const wanted = suggestFor === "both" || suggestFor === sideToMove;
+
+    // Skip the API call entirely when suggestions are off or this colour's
+    // turn isn't one we're asking about — this is what keeps us under the limit.
+    if (!suggestionsEnabled || !wanted) {
       abortRef.current?.abort();
       setEngine(null);
       setLoading(false);
@@ -133,7 +142,7 @@ export default function Home() {
       });
 
     return () => controller.abort();
-  }, [fen, phase, suggestionsEnabled]);
+  }, [fen, phase, suggestionsEnabled, suggestFor]);
 
   // Shared move executor used by both drag-and-drop and click-to-move.
   const attemptMove = useCallback(
@@ -302,15 +311,14 @@ export default function Home() {
     });
   }, [syncFromGame]);
 
-  // Draw the engine's best move as an arrow. It is highlighted in green when the
-  // side to move is the colour we are optimising for, muted otherwise.
+  // Draw the engine's best move as an arrow. We only ever fetch a suggestion for
+  // a colour we asked about, so when one exists it is always a wanted move.
   const arrows: Arrow[] = [];
   if (engine?.bestMove && engine.bestMove.length >= 4) {
-    const optimisingNow = turn === engineColor;
     arrows.push({
       startSquare: engine.bestMove.slice(0, 2),
       endSquare: engine.bestMove.slice(2, 4),
-      color: optimisingNow ? "#22c55e" : "#94a3b8",
+      color: "#22c55e",
     });
   }
 
@@ -341,7 +349,8 @@ export default function Home() {
     }
   }
 
-  const recommendedForEngineColor = turn === engineColor;
+  // Whether the colour to move is one we're requesting suggestions for.
+  const suggestionWanted = suggestFor === "both" || suggestFor === turn;
 
   let statusText = `${PHASE_LABELS[phase]} · ${turn === "white" ? "White" : "Black"} to move`;
   if (gameRef.current.isCheckmate()) {
@@ -496,18 +505,20 @@ export default function Home() {
               </p>
             ) : isGameOver ? (
               <p className={styles.muted}>The game is over — no analysis.</p>
+            ) : !suggestionWanted ? (
+              <p className={styles.muted}>
+                Suggestions are set to{" "}
+                {suggestFor === "white" ? "White" : "Black"} only — it&apos;s{" "}
+                {turn === "white" ? "White" : "Black"}&apos;s move, so no call is
+                made.
+              </p>
             ) : engine?.error ? (
               <p className={styles.error}>{engine.error}</p>
             ) : engine ? (
               <div className={styles.analysis}>
-                <div
-                  className={styles.bestMove}
-                  data-highlight={recommendedForEngineColor}
-                >
+                <div className={styles.bestMove} data-highlight={true}>
                   <span className={styles.bestMoveLabel}>
-                    {recommendedForEngineColor
-                      ? `★ Play this for ${engineColor === "white" ? "White" : "Black"}`
-                      : `Best move (${turn === "white" ? "White" : "Black"} to move)`}
+                    {`★ Play this for ${turn === "white" ? "White" : "Black"}`}
                   </span>
                   <span className={styles.bestMoveValue}>
                     {engine.bestMove ?? "—"}
@@ -548,19 +559,22 @@ export default function Home() {
           </div>
 
           <div className={styles.card}>
-            <h2 className={styles.cardTitle}>Optimise for</h2>
+            <h2 className={styles.cardTitle}>Suggestions for</h2>
             <p className={styles.hint}>
-              The engine highlights the best move for this colour to win.
+              Limit which colour gets engine calls. Picking one colour halves the
+              requests and helps avoid rate limits (HTTP 429) if you are playing too fast.
             </p>
             <div className={styles.segmented}>
-              {(["white", "black"] as EngineColor[]).map((c) => (
+              {(["white", "black", "both"] as SuggestColor[]).map((c) => (
                 <button
                   key={c}
                   className={styles.segment}
-                  data-active={engineColor === c}
-                  onClick={() => setEngineColor(c)}
+                  data-active={suggestFor === c}
+                  onClick={() => setSuggestFor(c)}
                 >
-                  <span>{c === "white" ? "White" : "Black"}</span>
+                  <span>
+                    {c === "white" ? "White" : c === "black" ? "Black" : "Both"}
+                  </span>
                 </button>
               ))}
             </div>
