@@ -11,12 +11,11 @@ import { useToasts } from "../../hooks/useToasts";
 import { buildBoardSquareStyles } from "../../lib/boardSquareStyles";
 import { playMoveSound, warmUpMoveSounds } from "../../lib/chessSounds";
 import {
-  findSwitchableOpenings,
-  getCurrentVariation,
-  getOpening,
-  hasBookContinuations,
-  hasDeviatedFromOpening,
-  isOpeningLineExhausted,
+  emptyOpeningTrackState,
+  evaluateOpeningTransitions,
+  openingTransitionToMessages,
+  canApplySuggestion,
+  shouldQueryStockfish,
   lookupBookSuggestion,
   OPENING_LIST,
   repertoireSideLabel,
@@ -89,11 +88,7 @@ export default function PlayPage() {
   const pointerRef = useRef({ x: 0, y: 0 });
   const lastAutoAppliedRef = useRef<{ fen: string; bestMove: string } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const openingTrackRef = useRef({
-    inBook: false,
-    variationId: "",
-    exhausted: false,
-  });
+  const openingTrackRef = useRef(emptyOpeningTrackState());
   const { toasts, pushToast, dismissToast } = useToasts();
 
   const turn: EngineColor = gameRef.current.turn() === "w" ? "white" : "black";
@@ -138,88 +133,33 @@ export default function PlayPage() {
     setHistory(gameRef.current.history());
   }, []);
 
-  const variationToast = useCallback(
-    (name: string) =>
-      pushToast(`Detected ${name} variation, suggestion recalculated`, "info"),
-    [pushToast]
-  );
-
   const prevOpeningIdRef = useRef<OpeningId | null>(null);
-
-  const notifyDeviated = useCallback(
-    (openingName: string, historyForSwitch: string[], openingId: OpeningId) => {
-      const others = findSwitchableOpenings(historyForSwitch, openingId);
-      let msg = `This move is not in ${openingName}. No eligible variations remain in this opening. Switching to Stockfish.`;
-      if (others.length > 0) {
-        msg += ` Consider switching to: ${others.map((o) => o.name).join(", ")}.`;
-      }
-      pushToast(msg, "warn");
-    },
-    [pushToast]
-  );
 
   useEffect(() => {
     if (!selectedOpening) {
-      openingTrackRef.current = { inBook: false, variationId: "", exhausted: false };
+      openingTrackRef.current = emptyOpeningTrackState();
       prevOpeningIdRef.current = null;
       return;
     }
-    const opening = getOpening(selectedOpening);
+    const opening = OPENING_LIST.find((o) => o.id === selectedOpening);
     if (!opening) return;
 
-    const inBook = hasBookContinuations(opening, history);
-    const exhausted = isOpeningLineExhausted(opening, history);
-    const deviated = hasDeviatedFromOpening(opening, history);
-    const variation = getCurrentVariation(opening, history);
-    const varId = variation?.id ?? "";
-    const prev = openingTrackRef.current;
     const openingJustChanged = prevOpeningIdRef.current !== selectedOpening;
     prevOpeningIdRef.current = selectedOpening;
 
-    if (openingJustChanged && history.length > 0) {
-      if (deviated) {
-        notifyDeviated(opening.name, history, selectedOpening);
-      } else if (exhausted) {
-        const label = variation
-          ? `${variation.name} (${variation.eco})`
-          : opening.name;
-        pushToast(
-          `Opening line already complete here — ${label}. Switching to Stockfish suggestions.`,
-          "success"
-        );
-      } else if (inBook && variation) {
-        variationToast(variation.name);
-      }
-      openingTrackRef.current = { inBook, variationId: varId, exhausted };
-      return;
+    const { events, next } = evaluateOpeningTransitions(
+      opening,
+      history,
+      openingTrackRef.current,
+      { openingJustChanged, allOpenings: OPENING_LIST }
+    );
+
+    for (const { message, kind } of openingTransitionToMessages(events)) {
+      pushToast(message, kind);
     }
 
-    if (history.length >= 1) {
-      if (inBook && variation && varId && varId !== prev.variationId) {
-        variationToast(variation.name);
-      } else if (!prev.inBook && inBook && variation) {
-        variationToast(variation.name);
-      }
-
-      if (prev.inBook && !inBook) {
-        if (exhausted) {
-          const label = variation
-            ? `${variation.name} (${variation.eco})`
-            : opening.name;
-          pushToast(
-            `Opening line complete — ${label}. Switching to Stockfish suggestions.`,
-            "success"
-          );
-        } else if (deviated) {
-          notifyDeviated(opening.name, history, selectedOpening);
-        } else {
-          pushToast("Left opening book — switching to Stockfish suggestions.", "warn");
-        }
-      }
-    }
-
-    openingTrackRef.current = { inBook, variationId: varId, exhausted };
-  }, [history, selectedOpening, pushToast, variationToast, notifyDeviated]);
+    openingTrackRef.current = next;
+  }, [history, selectedOpening, pushToast]);
 
   useEffect(() => {
     if (!suggestionsEnabled) {
@@ -236,10 +176,10 @@ export default function PlayPage() {
     }
 
     const sideToMove = gameRef.current.turn() === "w" ? "white" : "black";
-    const stockfishWanted = suggestFor === "both" || suggestFor === sideToMove;
-
-    // Book always applies to both sides while an opening is selected and still in book.
-    const book = selectedOpening ? lookupBookSuggestion(selectedOpening, history, fen) : null;
+    const book = selectedOpening
+      ? lookupBookSuggestion(selectedOpening, history, fen)
+      : null;
+    const inBook = book != null;
     if (book) {
       abortRef.current?.abort();
       setEngine({
@@ -260,7 +200,7 @@ export default function PlayPage() {
       return;
     }
 
-    if (!stockfishWanted) {
+    if (!shouldQueryStockfish(suggestFor, sideToMove, inBook)) {
       abortRef.current?.abort();
       setEngine(null);
       setLoading(false);
@@ -420,18 +360,12 @@ export default function PlayPage() {
 
   const canConfirmEngine =
     Boolean(engine?.bestMove) &&
-    (engine?.fromBook ||
-      suggestFor === "both" ||
-      suggestFor === turn);
+    canApplySuggestion(suggestFor, turn, Boolean(engine?.fromBook));
 
   useEffect(() => {
     if (!autoMove || !suggestionsEnabled || loading || isGameOver || forceMoveFrom) return;
     const sideToMove = gameRef.current.turn() === "w" ? "white" : "black";
-    if (
-      suggestFor !== "both" &&
-      suggestFor !== sideToMove &&
-      !engine?.fromBook
-    ) {
+    if (!canApplySuggestion(suggestFor, sideToMove, Boolean(engine?.fromBook))) {
       return;
     }
     const best = engine?.bestMove;

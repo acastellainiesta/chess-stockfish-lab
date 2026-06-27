@@ -34,6 +34,15 @@ export {
   type StudyMoveValidation,
   type StudySuggestion,
 } from "./study";
+export {
+  emptyOpeningTrackState,
+  evaluateOpeningTransitions,
+  openingTransitionToMessages,
+  shouldQueryStockfish,
+  canApplySuggestion,
+  type OpeningTrackState,
+  type OpeningTransitionEvent,
+} from "./bookSession";
 
 export const OPENINGS: Record<OpeningId, OpeningDefinition> = {
   "caro-kann": CARO_KANN,

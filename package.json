@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "validate:openings": "node --experimental-strip-types scripts/validate-openings.mjs"
   },
   "dependencies": {
     "chess.js": "^1.4.0",
