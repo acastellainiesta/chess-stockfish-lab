@@ -5,7 +5,7 @@ A web-based chess analysis board that lets you play both sides of a position and
 > [!CAUTION]
 > This is a **learning and analysis tool**, not a cheating tool. Using engine help during rated games on chess com, Lichess, or in tournaments violates their rules and will very likely get you banned. Struggling at chess doesn't make you any less smart. Please use this fairly and be kind to other players.
 
-![Demo](demo.mp4)
+https://github.com/user-attachments/assets/4c239938-d3a8-414e-9bca-72e9bee336bd
 
 ## What is Stockfish?
 
