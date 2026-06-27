@@ -6,6 +6,7 @@ import type { Square } from "chess.js";
 import { Chessboard } from "react-chessboard";
 import type { Arrow } from "react-chessboard";
 import styles from "./page.module.css";
+import { playMoveSound, warmUpMoveSounds } from "../lib/chessSounds";
 
 type ContextMenuState = { x: number; y: number; square: string };
 
@@ -60,6 +61,8 @@ export default function Home() {
   // single colour roughly halves the number of API calls, which avoids the
   // StockfishOnline rate limit (HTTP 429) during quick back-and-forth play.
   const [suggestFor, setSuggestFor] = useState<SuggestColor>("both");
+  const [autoMove, setAutoMove] = useState(false);
+  const lastAutoAppliedRef = useRef<{ fen: string; bestMove: string } | null>(null);
   const [orientation, setOrientation] = useState<EngineColor>("white");
 
   const [engine, setEngine] = useState<EngineResult | null>(null);
@@ -150,6 +153,7 @@ export default function Home() {
       try {
         const move = gameRef.current.move({ from, to, promotion: "q" });
         if (!move) return false;
+        playMoveSound(move, gameRef.current);
         syncFromGame();
         setSelectedSquare(null);
         // A new forward move invalidates any moves that were undone.
@@ -278,6 +282,41 @@ export default function Home() {
     [attemptMove, engine]
   );
 
+  // When auto-move is on, play the engine line as soon as a suggestion arrives
+  // for a colour we're requesting — same effect as pressing White/Black confirm.
+  useEffect(() => {
+    if (!autoMove || !suggestionsEnabled || loading || isGameOver || forceMoveFrom) {
+      return;
+    }
+
+    const sideToMove = gameRef.current.turn() === "w" ? "white" : "black";
+    if (suggestFor !== "both" && suggestFor !== sideToMove) return;
+
+    const best = engine?.bestMove;
+    if (!best || best.length < 4 || engine.error) return;
+
+    const applied = { fen, bestMove: best };
+    if (
+      lastAutoAppliedRef.current?.fen === applied.fen &&
+      lastAutoAppliedRef.current?.bestMove === applied.bestMove
+    ) {
+      return;
+    }
+
+    const ok = attemptMove(best.slice(0, 2), best.slice(2, 4));
+    if (ok) lastAutoAppliedRef.current = applied;
+  }, [
+    autoMove,
+    suggestionsEnabled,
+    engine,
+    loading,
+    fen,
+    suggestFor,
+    isGameOver,
+    forceMoveFrom,
+    attemptMove,
+  ]);
+
   const newGame = useCallback(() => {
     gameRef.current = new Chess();
     syncFromGame();
@@ -286,6 +325,7 @@ export default function Home() {
     setRedoStack([]);
     setForceMoveFrom(null);
     setContextMenu(null);
+    lastAutoAppliedRef.current = null;
   }, [syncFromGame]);
 
   const undo = useCallback(() => {
@@ -294,6 +334,7 @@ export default function Home() {
     setRedoStack((stack) => [...stack, undone.san]);
     syncFromGame();
     setSelectedSquare(null);
+    lastAutoAppliedRef.current = null;
   }, [syncFromGame]);
 
   const redo = useCallback(() => {
@@ -301,7 +342,8 @@ export default function Home() {
       if (stack.length === 0) return stack;
       const san = stack[stack.length - 1];
       try {
-        gameRef.current.move(san);
+        const move = gameRef.current.move(san);
+        if (move) playMoveSound(move, gameRef.current);
         syncFromGame();
         setSelectedSquare(null);
         return stack.slice(0, -1);
@@ -385,6 +427,7 @@ export default function Home() {
             className={styles.board}
             onMouseDown={(e) => {
               pointerRef.current = { x: e.clientX, y: e.clientY };
+              warmUpMoveSounds();
             }}
             onContextMenu={(e) => e.preventDefault()}
           >
@@ -578,6 +621,18 @@ export default function Home() {
                 </button>
               ))}
             </div>
+
+            <label className={styles.toggle}>
+              <input
+                type="checkbox"
+                checked={autoMove}
+                onChange={(e) => {
+                  setAutoMove(e.target.checked);
+                  if (!e.target.checked) lastAutoAppliedRef.current = null;
+                }}
+              />
+              <span>Auto-move (automatically play the suggested move)</span>
+            </label>
           </div>
 
           <div className={styles.card}>
